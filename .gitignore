@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.egg-info/
+
+# Environment secrets
+.env
+*.env
+!.env.example
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+
+# Uploaded files (runtime data, not source)
+backend/uploads/resumes/*
+backend/uploads/audio/*
+!backend/uploads/resumes/.gitkeep
+!backend/uploads/audio/.gitkeep
+
+# Test/dev artifacts
+.pytest_cache/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

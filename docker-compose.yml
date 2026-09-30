@@ -1,0 +1,67 @@
+# Belongs in: talenthire-ai/docker-compose.yml (project root)
+# Spins up the full stack: PostgreSQL + FastAPI backend + React frontend.
+#
+# Usage:
+#   docker compose up --build
+#   Frontend:      http://localhost:5173
+#   Backend docs:  http://localhost:8000/docs
+#
+# Set GEMINI_API_KEY before running (question generation + feedback will
+# fail without it; everything else works fine without a key).
+
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: talenthire_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: talenthire_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - talenthire_pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/1_schema.sql
+      - ./database/seed_data.sql:/docker-entrypoint-initdb.d/2_seed_data.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: talenthire_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/talenthire_db
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_in_production}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      FRONTEND_ORIGIN: http://localhost:5173
+    ports:
+      - "8000:8000"
+    volumes:
+      - resume_uploads:/app/backend/uploads
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: talenthire_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  talenthire_pgdata:
+  resume_uploads:

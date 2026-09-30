@@ -1,0 +1,28 @@
+# ============================================================================
+# TalentHire AI - ML / AI Module Dependencies
+# Install with: pip install -r requirements.txt
+# Then download the spaCy model: python -m spacy download en_core_web_sm
+# ============================================================================
+
+numpy==1.26.4
+pandas==2.2.3
+scikit-learn==1.5.2
+joblib==1.4.2
+
+# --- Resume parsing ---
+pymupdf==1.24.10
+spacy==3.7.6
+skillNer==1.0.3
+
+# --- Embeddings / semantic similarity ---
+sentence-transformers==3.1.1
+torch==2.4.1
+
+# --- Speech recognition ---
+openai-whisper==20231117
+ffmpeg-python==0.2.0
+
+# --- Generative AI (question generation + feedback) ---
+google-generativeai==0.8.3
+
+python-dotenv==1.0.1

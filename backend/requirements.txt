@@ -1,0 +1,51 @@
+# ============================================================================
+# TalentHire AI - Backend Dependencies
+# Install with: pip install -r requirements.txt
+# ============================================================================
+
+# --- Web framework ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# --- Database ---
+sqlalchemy==2.0.35
+psycopg2-binary==2.9.9
+# NOTE: schema is managed via database/schema.sql (applied once with psql/
+# pgAdmin) plus SQLAlchemy's Base.metadata.create_all() as a safety net on
+# startup for any tables that don't exist yet. Add `alembic` here if you
+# want versioned migrations as the project evolves.
+
+# --- Auth & security ---
+# NOTE: passlib is unmaintained and its bcrypt self-test breaks under
+# bcrypt>=4.1 ("password cannot be longer than 72 bytes" on ANY password,
+# even short valid ones). app/core/security.py calls the `bcrypt` package
+# directly instead, so only `bcrypt` is needed here — not passlib.
+python-jose[cryptography]==3.3.0
+bcrypt==4.2.0
+python-multipart==0.0.9
+
+# --- Validation / settings ---
+pydantic==2.9.2
+pydantic-settings==2.5.2
+email-validator==2.2.0
+
+# --- Environment ---
+python-dotenv==1.0.1
+
+# --- CORS is bundled with FastAPI/Starlette, no extra package needed ---
+
+# --- ML / AI modules (see ml/requirements.txt for the full ML stack) ---
+numpy==1.26.4
+scikit-learn==1.5.2
+sentence-transformers==3.1.1
+spacy==3.7.6
+skillNer==1.0.3
+pymupdf==1.24.10
+openai-whisper==20231117
+google-generativeai==0.8.3
+google-genai==1.15.0  # newer unified SDK, needed specifically for Live API ephemeral tokens (Phase 6)
+
+# --- Testing ---
+pytest==8.3.3
+httpx==0.27.2
+reportlab==4.2.5

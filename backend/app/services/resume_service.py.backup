@@ -1,0 +1,132 @@
+"""
+app/services/resume_service.py
+--------------------------------
+Business logic connecting the resume upload API endpoints to the ML layer
+(ml/resume_parser, ml/resume_classifier), plus Phase 4 versioning, identity
+consistency checks, and ATS scoring. Belongs in: backend/app/services/resume_service.py
+"""
+
+import os
+import sys
+import uuid
+from typing import List, Optional
+
+from fastapi import UploadFile
+from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.models.resume import Resume
+from app.services.ats_service import compute_ats_score
+from app.services.consistency_service import extract_identity, check_consistency, ExtractedIdentity
+
+ML_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "ml"))
+if ML_DIR not in sys.path:
+    sys.path.append(ML_DIR)
+
+
+def _get_resume_parser():
+    """Lazy import — see interview_service.py for the rationale (keeps the API bootable without heavy ML deps)."""
+    from resume_parser.parser import get_resume_parser
+    return get_resume_parser()
+
+
+def _get_resume_classifier():
+    from resume_classifier.classify import get_resume_classifier
+    return get_resume_classifier()
+
+
+def save_uploaded_file(upload: UploadFile, candidate_id: int) -> str:
+    os.makedirs(settings.RESUME_UPLOAD_DIR, exist_ok=True)
+    ext = os.path.splitext(upload.filename)[1] or ".pdf"
+    unique_name = f"candidate_{candidate_id}_{uuid.uuid4().hex}{ext}"
+    dest_path = os.path.join(settings.RESUME_UPLOAD_DIR, unique_name)
+    with open(dest_path, "wb") as f:
+        f.write(upload.file.read())
+    return dest_path
+
+
+def process_resume(db: Session, candidate_id: int, upload: UploadFile, force: bool = False) -> dict:
+    """
+    Full resume ingestion pipeline (PHASE 4 version):
+      1. Save uploaded PDF to disk
+      2. Parse text + extract skills + compute embedding (ml/resume_parser)
+      3. Classify resume category (ml/resume_classifier) — kept internally
+         for job-matching use, but NOT surfaced on the resume page UI
+      4. Extract identity (name/email/phone) and check consistency against
+         the candidate's current resume — if it looks like a different
+         person, return a warning WITHOUT saving, unless force=True
+      5. Compute the explainable ATS Compatibility Score
+      6. Persist as a NEW version (never overwrite/delete prior versions)
+
+    Returns a dict: either {"requires_confirmation": True, "warning": str}
+    or {"requires_confirmation": False, "resume": Resume}.
+    """
+    file_path = save_uploaded_file(upload, candidate_id)
+
+    parser = _get_resume_parser()
+    parsed = parser.parse(file_path)
+
+    classifier = _get_resume_classifier()
+    classification = classifier.predict(parsed.cleaned_text)
+
+    identity = extract_identity(parsed.raw_text)
+
+    existing_current = (
+        db.query(Resume)
+        .filter(Resume.candidate_id == candidate_id, Resume.is_current.is_(True))
+        .order_by(Resume.version_number.desc())
+        .first()
+    )
+
+    if existing_current and not force:
+        existing_identity = ExtractedIdentity(
+            name=existing_current.extracted_name,
+            email=existing_current.extracted_email,
+            phone=existing_current.extracted_phone,
+        )
+        warning = check_consistency(identity, existing_identity)
+        if warning:
+            return {"requires_confirmation": True, "warning": warning}
+
+    ats_result = compute_ats_score(
+        parsed.raw_text, parsed.extracted_skills,
+        job_required_skills=None,
+        email=identity.email, phone=identity.phone,
+    )
+
+    new_version = 1
+    if existing_current:
+        existing_current.is_current = False
+        new_version = existing_current.version_number + 1
+
+    resume = Resume(
+        candidate_id=candidate_id,
+        file_path=file_path,
+        original_filename=upload.filename,
+        raw_text=parsed.raw_text,
+        extracted_skills=parsed.extracted_skills,
+        predicted_category=classification.predicted_category,
+        prediction_confidence=classification.confidence,
+        embedding=parsed.embedding,
+        version_number=new_version,
+        is_current=True,
+        extracted_name=identity.name,
+        extracted_email=identity.email,
+        extracted_phone=identity.phone,
+        ats_score=ats_result.total_score,
+        ats_breakdown=ats_result.breakdown,
+    )
+    db.add(resume)
+    db.commit()
+    db.refresh(resume)
+    return {"requires_confirmation": False, "resume": resume}
+
+
+def compute_skill_match_score(resume_skills: List[str], job_skills: List[str]) -> float:
+    """Simple, explainable job-match score: percentage overlap of skill sets."""
+    if not job_skills:
+        return 0.0
+    resume_set = {s.lower() for s in resume_skills or []}
+    job_set = {s.lower() for s in job_skills}
+    overlap = resume_set.intersection(job_set)
+    return round(len(overlap) / len(job_set) * 100, 2)
